@@ -38,8 +38,10 @@ import {
   dayLabels,
   graphHint,
   graphTitle,
+  level1On,
   resolveNodes,
   type Expansion,
+  type GraphMode,
 } from "@/lib/graph-series";
 
 export const Route = createFileRoute("/")({
@@ -49,13 +51,13 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "See how OTA Buster turns raw OTA guest data into usable guest information: baseline, Whois AI, Level 2 enrichment, the opportunity still open and what is unrecoverable.",
+          "See how OTA Buster turns raw OTA guest data into usable guest information: Level 1 baseline plus Whois AI, Level 2 collection, and the opportunity still remaining against every booking received.",
       },
       { property: "og:title", content: "Guest Information Opportunity — Enrichment Analytics" },
       {
         property: "og:description",
         content:
-          "Usable guest information from OTA baseline through Level 1 and Level 2 enrichment, against total bookings received.",
+          "Usable guest information from Level 1 and Level 2 enrichment, measured against total bookings received.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -71,11 +73,12 @@ function Dashboard() {
   const [comparison, setComparison] = useState<ComparisonId>("off");
   const [customCompare, setCustomCompare] = useState<Range | null>(null);
   const [selection, setSelection] = useState<Selection>(DEFAULT_SELECTION);
-  const [breakdown, setBreakdown] = useState<Breakdown>({ ota: false, l1: false, l2: false });
+  const [breakdown, setBreakdown] = useState<Breakdown>({ level1: false, l2: false });
   const [chartView, setChartView] = useState<"pie" | "bridge">("pie");
 
   // Time graph state
   const [expansion, setExpansion] = useState<Expansion>(DEFAULT_EXPANSION);
+  const [graphMode, setGraphMode] = useState<GraphMode>("levels");
   const [hidden, setHidden] = useState<Record<string, boolean>>({});
 
   const range = useMemo(() => resolvePeriod(period, customRange), [period, customRange]);
@@ -98,10 +101,13 @@ function Dashboard() {
 
   const fields = useMemo(() => stageFields(a, selection), [a, selection]);
   const t = useMemo(() => toTotals(a), [a]);
-  const layers = { ota: selection.ota, l1: selection.l1, l2: selection.l2 };
+  const layers = { level1: level1On(selection), l2: selection.l2 };
   const l2detail = { journey: a.journey, staff: a.staff, idscan: a.idscan, duringStay: a.duringStay };
 
-  const nodes = useMemo(() => resolveNodes(selection, expansion), [selection, expansion]);
+  const nodes = useMemo(
+    () => resolveNodes(selection, expansion, graphMode),
+    [selection, expansion, graphMode],
+  );
   const visibleNodes = nodes.filter((n) => !hidden[n.key]);
   const chartSeries = useMemo(
     () => buildChartSeries(visibleNodes, rows, compareRows, selection),
@@ -115,7 +121,10 @@ function Dashboard() {
 
   const toggleSource = (k: SourceKey) =>
     setSelection((s) => {
-      const next = { ...s, [k]: !s[k] };
+      const next =
+        k === "level1"
+          ? { ...s, ota: !level1On(s), l1: !level1On(s) }
+          : { ...s, l2: !s.l2 };
       if (!next.ota && !next.l1 && !next.l2) return s;
       return next;
     });
@@ -133,8 +142,8 @@ function Dashboard() {
           Your OTA data is the starting point — not the value.
         </h1>
         <p className="mt-2 max-w-2xl text-muted-foreground">
-          How many bookings arrived, how much guest information is usable, how much is still
-          recoverable, and how much can never be recovered.
+          How many bookings arrived, how much guest information Level 1 and Level 2 make usable,
+          and how much opportunity is still remaining.
         </p>
       </header>
 
@@ -167,9 +176,12 @@ function Dashboard() {
         </div>
         <div className="grid grid-cols-2 gap-x-10 gap-y-3 sm:grid-cols-4">
           <Stat label="Total bookings" value={nf.format(a.bookings)} />
-          <Stat label="Total usable" value={nf.format(Math.round(a.usable))} tone="primary" />
-          <Stat label="Opportunity remaining" value={nf.format(Math.round(a.recoverable))} muted />
-          <Stat label="Unrecoverable" value={nf.format(Math.round(a.unrecoverable))} muted />
+          <Stat
+            label="Usable guest information"
+            value={nf.format(Math.round(a.usable))}
+            tone="primary"
+          />
+          <Stat label="Opportunity remaining" value={nf.format(Math.round(a.remaining))} muted />
         </div>
       </section>
 
@@ -178,7 +190,7 @@ function Dashboard() {
           <div>
             <h2 className="text-xl font-semibold">Usable mix</h2>
             <p className="text-sm text-muted-foreground">
-              Every booking is usable, still recoverable, or unrecoverable.
+              Every booking is either usable or still an open opportunity.
             </p>
             <p className="num mt-1 text-xs text-muted-foreground">
               {rangeLabel}
@@ -231,7 +243,6 @@ function Dashboard() {
             fields={fields}
             l2={l2detail}
             bookings={a.bookings}
-            unrecoverable={a.unrecoverable}
             rangeLabel={rangeLabel}
           />
         )}
@@ -239,8 +250,8 @@ function Dashboard() {
 
       <section className="panel mt-6 p-6 lg:p-8">
         <div className="mb-4">
-          <h2 className="text-xl font-semibold">Over time — {graphTitle(selection)}</h2>
-          <p className="text-sm text-muted-foreground">{graphHint(selection)}</p>
+          <h2 className="text-xl font-semibold">Over time — {graphTitle(selection, graphMode)}</h2>
+          <p className="text-sm text-muted-foreground">{graphHint(selection, graphMode)}</p>
         </div>
 
         <GraphControls
@@ -249,6 +260,8 @@ function Dashboard() {
           onToggleVisible={(k) => setHidden((h) => ({ ...h, [k]: !h[k] }))}
           expansion={expansion}
           onToggleExpand={(k) => setExpansion((e) => ({ ...e, [k]: !e[k] }))}
+          mode={graphMode}
+          onMode={setGraphMode}
         />
 
         <TimeSeriesChart

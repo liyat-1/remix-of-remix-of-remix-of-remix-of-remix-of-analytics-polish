@@ -11,7 +11,7 @@ import {
   type Totals,
 } from "@/lib/analytics-model";
 
-type Layers = { ota: boolean; l1: boolean; l2: boolean };
+type Layers = { level1: boolean; l2: boolean };
 
 export type L2Detail = { journey: number; staff: number; idscan: number; duringStay: number };
 
@@ -31,11 +31,15 @@ type Tip = {
   note?: string;
 };
 
+const L1_COLOR = "var(--l1)";
+const L2_COLOR = "var(--l2)";
+const REMAIN_COLOR = "var(--recoverable)";
+
 function splitRows(s: FieldSplit) {
   return FIELDS.map((f) => ({ k: FIELD_LABELS[f], v: nf.format(Math.round(s[f])) }));
 }
 
-/** For values with no field-level truth (ceiling, gap): scale by the usable mix. */
+/** For values with no field-level truth (bookings, remaining): scale by the usable mix. */
 function scaledRows(value: number, ref: FieldSplit) {
   const t = splitTotal(ref) || 1;
   return FIELDS.map((f) => ({
@@ -59,7 +63,6 @@ export function HeroBridge({
   fields,
   l2,
   bookings,
-  unrecoverable,
   rangeLabel,
 }: {
   t: Totals;
@@ -67,21 +70,18 @@ export function HeroBridge({
   fields: StageFieldMap;
   l2: L2Detail;
   bookings: number;
-  unrecoverable: number;
   rangeLabel: string;
 }) {
   const [tip, setTip] = useState<Tip | null>(null);
-  const max = Math.max(bookings, t.ceiling, 1);
+  const max = Math.max(bookings, t.usable, 1);
   const y = (v: number) => BOTTOM - (v / max) * (BOTTOM - TOP);
   const h = (v: number) => (v / max) * (BOTTOM - TOP);
   const ticks = niceTicks(max);
 
-
   const cols: { key: string; label: string; sub: string }[] = [];
-  if (layers.ota) cols.push({ key: "ota", label: "OTA baseline", sub: "Ready to use" });
-  if (layers.l1) cols.push({ key: "l1", label: "Level 1", sub: "Whois AI" });
+  if (layers.level1) cols.push({ key: "level1", label: "Level 1", sub: "OTA baseline + Whois AI" });
   if (layers.l2) cols.push({ key: "l2", label: "Level 2", sub: "Guest Journey + During Stay" });
-  cols.push({ key: "final", label: "Total usable", sub: "Guest profiles" });
+  cols.push({ key: "final", label: "Opportunity remaining", sub: "Usable vs total bookings" });
 
   const bw = 108;
   const slot = (RIGHT - LEFT) / cols.length;
@@ -122,11 +122,8 @@ export function HeroBridge({
         viewBox={`0 0 ${W} ${H}`}
         className="w-full"
         role="img"
-        aria-label="Usable guest information growth against the OTA opportunity ceiling"
+        aria-label="Usable guest information from Level 1 and Level 2 against total bookings"
       >
-        <defs>
-        </defs>
-
         {/* plot background */}
         <rect x={LEFT} y={TOP} width={RIGHT - LEFT} height={BOTTOM - TOP} fill="var(--surface)" rx="10" />
 
@@ -181,80 +178,37 @@ export function HeroBridge({
           Enrichment stage · {rangeLabel}
         </text>
 
-        {/* unrecoverable band: everything above the recoverable ceiling, up to
-            total bookings — information that can never be recovered. */}
-        <rect
-          x={LEFT}
-          y={TOP}
-          width={RIGHT - LEFT}
-          height={Math.max(0, y(t.ceiling) - TOP)}
-          fill="var(--unrecoverable)"
-          opacity="0.1"
-          className="cursor-help"
-          onMouseMove={(e) =>
-            show(e, {
-              title: "Unrecoverable information",
-              color: "var(--unrecoverable)",
-              note: "Bookings whose guest information can never be recovered — the hard limit above the ceiling.",
-              rows: [
-                { k: "Unrecoverable", v: nf.format(Math.round(unrecoverable)) },
-                { k: "Total bookings", v: nf.format(Math.round(bookings)) },
-                { k: "Share of bookings", v: `${Math.round((unrecoverable / (bookings || 1)) * 100)}%` },
-              ],
-            })
-          }
-          onMouseLeave={() => setTip(null)}
-        />
-        <text
-          x={LEFT + 14}
-          y={TOP + Math.max(16, (y(t.ceiling) - TOP) / 2 + 5)}
-          className="num pointer-events-none"
-          fill="var(--muted-foreground)"
-          fontSize="13"
-          fontWeight="600"
-        >
-          Unrecoverable · {compact(unrecoverable)}
-        </text>
-
-
-        {/* total bookings line */}
-        <line x1={LEFT} y1={TOP} x2={RIGHT} y2={TOP} stroke="var(--border)" strokeWidth="1.5" />
-        <text x={RIGHT - 4} y={TOP - 12} textAnchor="end" className="num" fill="var(--muted-foreground)" fontSize="13" fontWeight="600">
-          Total bookings · {compact(bookings)}
-        </text>
-
-        {/* recoverable opportunity ceiling */}
+        {/* total bookings ceiling — every booking is usable or still an open opportunity */}
         <line
           x1={LEFT}
-          y1={y(t.ceiling)}
+          y1={y(bookings)}
           x2={RIGHT}
-          y2={y(t.ceiling)}
-          stroke="var(--ceiling)"
+          y2={y(bookings)}
+          stroke="var(--border)"
           strokeWidth="2"
           strokeDasharray="7 6"
         />
         <text
-          x={LEFT + 14}
-          y={y(t.ceiling) + 20}
-          textAnchor="start"
+          x={RIGHT - 4}
+          y={y(bookings) - 12}
+          textAnchor="end"
           className="num"
-          fill="var(--ceiling)"
-          fontSize="14"
+          fill="var(--muted-foreground)"
+          fontSize="13"
           fontWeight="600"
         >
-          Recoverable opportunity ceiling · {compact(t.ceiling)}
+          Total bookings · {compact(bookings)}
         </text>
-        {infoIcon(LEFT + 24 + 244, y(t.ceiling) + 15, {
-
-          title: "Recoverable opportunity ceiling",
-          color: "var(--ceiling)",
-          note: "Total bookings minus unrecoverable information — the most usable guest information you could ever hold.",
+        {infoIcon(LEFT + 24, y(bookings) + 18, {
+          title: "Total bookings",
+          color: "var(--muted-foreground)",
+          note: "Every booking received in this period. Each one is either usable or still an open opportunity.",
           rows: [
-            { k: "Ceiling", v: nf.format(Math.round(t.ceiling)) },
-            ...scaledRows(t.ceiling, fields.usable),
+            { k: "Total bookings", v: nf.format(Math.round(bookings)) },
+            { k: "Usable", v: nf.format(Math.round(t.usable)) },
+            { k: "Opportunity remaining", v: nf.format(Math.round(t.remaining)) },
           ],
         })}
-
 
         {/* connectors */}
         {seg.map((s, i) => {
@@ -280,24 +234,28 @@ export function HeroBridge({
           if (isFinal) {
             return (
               <g key={s.key} className="rise" style={{ animationDelay: `${i * 90}ms` }}>
-                {/* remaining opportunity ghost */}
+                {/* opportunity remaining: from usable up to total bookings */}
                 <rect
                   x={x(i)}
-                  y={y(t.ceiling)}
+                  y={y(bookings)}
                   width={bw}
-                  height={Math.max(0, y(t.usable) - y(t.ceiling))}
-                  fill="var(--recoverable)"
+                  height={Math.max(0, y(t.usable) - y(bookings))}
+                  fill={REMAIN_COLOR}
+                  opacity="0.85"
                   rx="6"
                   className="cursor-help"
                   onMouseMove={(e) =>
                     show(e, {
                       title: "Opportunity remaining",
-                      color: "var(--muted-foreground)",
-                      note: "Bookings where guest information is still not usable, but could still be recovered.",
+                      color: REMAIN_COLOR,
+                      note: "Bookings where guest information is still not usable — the opportunity still open.",
                       rows: [
-                        { k: "Opportunity remaining", v: nf.format(Math.round(t.gap)) },
-                        { k: "Share of ceiling", v: `${Math.round((t.gap / (t.ceiling || 1)) * 100)}%` },
-                        ...scaledRows(t.gap, fields.usable),
+                        { k: "Opportunity remaining", v: nf.format(Math.round(t.remaining)) },
+                        {
+                          k: "Share of bookings",
+                          v: `${Math.round((t.remaining / (bookings || 1)) * 100)}%`,
+                        },
+                        ...scaledRows(t.remaining, fields.usable),
                       ],
                     })
                   }
@@ -305,53 +263,34 @@ export function HeroBridge({
                 />
                 <text
                   x={x(i) + bw / 2}
-                  y={y(t.ceiling) + 20}
+                  y={y(bookings) + 20}
                   textAnchor="middle"
                   fill="var(--muted-foreground)"
                   fontSize="12"
                   className="num pointer-events-none"
                 >
-                  {compact(t.gap)} left
+                  {compact(t.remaining)} left
                 </text>
 
-                {/* total usable, stacked as three green shades:
-                    OTA (lightest) → Level 1 → Level 2 (full green) */}
+                {/* usable total, stacked: Level 1 then Level 2 */}
                 <rect
                   x={x(i)}
-                  y={y(t.ota)}
+                  y={y(t.level1)}
                   width={bw}
-                  height={Math.max(3, h(t.ota))}
+                  height={Math.max(3, h(t.level1))}
                   rx="8"
-                  fill="color-mix(in oklab, var(--l2) 30%, var(--surface-2))"
-                  className="cursor-help"
-                  onMouseMove={(e) =>
-                    show(e, {
-                      title: "OTA baseline inside the total",
-                      color: "var(--l2)",
-                      note: "Part of today's usable total that arrived usable from the OTA.",
-                      rows: [
-                        { k: "OTA baseline", v: nf.format(Math.round(t.ota)) },
-                        { k: "Share of usable", v: `${Math.round((t.ota / (t.usable || 1)) * 100)}%` },
-                      ],
-                    })
-                  }
-                  onMouseLeave={() => setTip(null)}
-                />
-                <rect
-                  x={x(i)}
-                  y={y(t.ota + t.l1)}
-                  width={bw}
-                  height={Math.max(3, h(t.l1))}
-                  fill="color-mix(in oklab, var(--l2) 60%, var(--surface-2))"
+                  fill={L1_COLOR}
                   className="cursor-help"
                   onMouseMove={(e) =>
                     show(e, {
                       title: "Level 1 inside the total",
-                      color: "var(--l2)",
-                      note: "Profiles made usable by Level 1 (Whois AI) enrichment.",
+                      color: L1_COLOR,
+                      note: "Usable guest information from the OTA baseline plus what Whois AI recovers.",
                       rows: [
-                        { k: "Level 1 · Whois AI", v: `+${nf.format(Math.round(t.l1))}` },
-                        { k: "Uplift vs OTA baseline", v: pct(t.l1Uplift) },
+                        { k: "Level 1", v: nf.format(Math.round(t.level1)) },
+                        { k: "— OTA baseline", v: nf.format(Math.round(t.ota)) },
+                        { k: "— Whois AI", v: nf.format(Math.round(t.whois)) },
+                        { k: "Share of usable", v: `${Math.round((t.level1 / (t.usable || 1)) * 100)}%` },
                       ],
                     })
                   }
@@ -363,21 +302,21 @@ export function HeroBridge({
                   width={bw}
                   height={Math.max(3, h(t.l2))}
                   rx="8"
-                  fill="var(--l2)"
+                  fill={L2_COLOR}
                   className="cursor-help"
                   onMouseMove={(e) =>
                     show(e, {
                       title: "Level 2 inside the total",
-                      color: "var(--l2)",
-                      note: "Profiles made usable by Level 2 (Journey + During Stay) enrichment.",
+                      color: L2_COLOR,
+                      note: "Profiles made usable by Level 2 (Guest Journey + During Stay).",
                       rows: [
-                        { k: "Level 2 · Journey + Stay", v: `+${nf.format(Math.round(t.l2))}` },
+                        { k: "Level 2", v: `+${nf.format(Math.round(t.l2))}` },
                         { k: "— Guest Journey", v: nf.format(Math.round(l2.journey)) },
                         { k: "— During Stay", v: nf.format(Math.round(l2.duringStay)) },
                         { k: "   · Staff Collection", v: nf.format(Math.round(l2.staff)) },
                         { k: "   · ID Scan Collection", v: nf.format(Math.round(l2.idscan)) },
                         { k: "Uplift vs Level 1 result", v: pct(t.l2Uplift) },
-                        { k: "Total usable", v: nf.format(Math.round(t.usable)) },
+                        { k: "Usable guest information", v: nf.format(Math.round(t.usable)) },
                         { k: "Uplift vs baseline", v: pct(t.totalUplift) },
                       ],
                     })
@@ -390,72 +329,64 @@ export function HeroBridge({
                   y={y(t.usable) - 46}
                   textAnchor="middle"
                   className="num pointer-events-none"
-                  fill="var(--l2)"
+                  fill={L2_COLOR}
                   fontSize="38"
                   fontWeight="700"
                 >
                   {compact(t.usable)}
                 </text>
                 {infoIcon(x(i) + bw / 2 + 60, y(t.usable) - 58, {
-                  title: "Total usable — field breakdown",
-                  color: "var(--l2)",
-                  rows: [{ k: "Total usable", v: nf.format(Math.round(t.usable)) }, ...splitRows(fields.usable)],
+                  title: "Usable guest information — field breakdown",
+                  color: L2_COLOR,
+                  rows: [
+                    { k: "Usable", v: nf.format(Math.round(t.usable)) },
+                    ...splitRows(fields.usable),
+                  ],
                 })}
                 <text
                   x={x(i) + bw / 2}
                   y={y(t.usable) - 24}
-
                   textAnchor="middle"
                   className="num pointer-events-none"
-                  fill="var(--l2)"
+                  fill={L2_COLOR}
                   fontSize="13"
                   fontWeight="600"
                 >
                   {pct(t.totalUplift)} vs baseline
                 </text>
-
               </g>
             );
           }
-          // Three green shades per segment: OTA (lightest) → Level 1 → Level 2 (full).
-          const color =
-            s.key === "ota"
-              ? "color-mix(in oklab, var(--l2) 30%, var(--surface-2))"
-              : s.key === "l1"
-                ? "color-mix(in oklab, var(--l2) 60%, var(--surface-2))"
-                : "var(--l2)";
+
+          const color = s.key === "level1" ? L1_COLOR : L2_COLOR;
           const tipFor: Omit<Tip, "x" | "y"> =
-            s.key === "ota"
+            s.key === "level1"
               ? {
-                  title: "OTA baseline — already usable",
+                  title: "Level 1 — OTA baseline + Whois AI",
                   color,
-                  note: "Guest information that arrived from the OTA in a usable state.",
+                  note: "Guest information usable from the booking itself, plus what Whois AI recovers.",
                   rows: [
-                    { k: "Usable", v: nf.format(Math.round(t.ota)) },
-                    { k: "Share of ceiling", v: `${Math.round((t.ota / (t.ceiling || 1)) * 100)}%` },
-                    ...splitRows(fields.ota),
+                    { k: "Level 1", v: nf.format(Math.round(t.level1)) },
+                    { k: "— OTA baseline", v: nf.format(Math.round(t.ota)) },
+                    { k: "— Whois AI", v: `+${nf.format(Math.round(t.whois))}` },
+                    { k: "Uplift vs OTA baseline", v: pct(t.l1Uplift) },
+                    { k: "Share of bookings", v: `${Math.round((t.level1 / (bookings || 1)) * 100)}%` },
+                    ...splitRows(fields.level1),
                   ],
                 }
               : {
-                  title: s.key === "l1" ? "Level 1 — Whois AI" : "Level 2 — Guest Journey + During Stay",
+                  title: "Level 2 — Guest Journey + During Stay",
                   color,
-                  note: "Profiles made usable by this enrichment level.",
+                  note: "Profiles made usable by Level 2 collection.",
                   rows: [
                     { k: "Added", v: `+${nf.format(Math.round(s.val))}` },
                     { k: "Running total", v: nf.format(Math.round(s.to)) },
-                    {
-                      k: s.key === "l1" ? "Uplift vs OTA baseline" : "Uplift vs Level 1 result",
-                      v: pct(s.key === "l1" ? t.l1Uplift : t.l2Uplift),
-                    },
-                    ...(s.key === "l1" ? splitRows(fields.l1) : splitRows(fields.l2)),
-                    ...(s.key === "l2"
-                      ? [
-                          { k: "— Guest Journey", v: nf.format(Math.round(l2.journey)) },
-                          { k: "— During Stay", v: nf.format(Math.round(l2.duringStay)) },
-                          { k: "   · Staff Collection", v: nf.format(Math.round(l2.staff)) },
-                          { k: "   · ID Scan Collection", v: nf.format(Math.round(l2.idscan)) },
-                        ]
-                      : []),
+                    { k: "Uplift vs Level 1 result", v: pct(t.l2Uplift) },
+                    ...splitRows(fields.l2),
+                    { k: "— Guest Journey", v: nf.format(Math.round(l2.journey)) },
+                    { k: "— During Stay", v: nf.format(Math.round(l2.duringStay)) },
+                    { k: "   · Staff Collection", v: nf.format(Math.round(l2.staff)) },
+                    { k: "   · ID Scan Collection", v: nf.format(Math.round(l2.idscan)) },
                   ],
                 };
           return (
@@ -483,10 +414,9 @@ export function HeroBridge({
                 fontSize="20"
                 fontWeight="700"
               >
-                {s.key === "ota" ? compact(s.val) : `+${compact(s.val)}`}
+                {s.key === "level1" ? compact(s.val) : `+${compact(s.val)}`}
               </text>
               {infoIcon(x(i) + bw / 2 + 46, y(s.to) - 20, tipFor)}
-
             </g>
           );
         })}
@@ -494,7 +424,6 @@ export function HeroBridge({
         {/* uplift brackets — sit in the gap between the previous column and this one */}
         {seg.map((s, i) => {
           if (i === 0 || i === finalIdx) return null;
-          const upl = s.key === "l1" ? t.l1Uplift : t.l2Uplift;
           const left = x(i - 1) + bw;
           const right = x(i);
           const cx = (left + right) / 2;
@@ -509,12 +438,11 @@ export function HeroBridge({
                 strokeWidth="1.5"
               />
               <text x={cx} y={yy + 16} textAnchor="middle" className="num" fill="var(--muted-foreground)" fontSize="12" fontWeight="600">
-                {pct(upl)} {s.key === "l1" ? "vs baseline" : "vs prev stage"}
+                {pct(t.l2Uplift)} vs Level 1
               </text>
             </g>
           );
         })}
-
 
         {/* x-axis labels */}
         {seg.map((s, i) => (
@@ -528,7 +456,7 @@ export function HeroBridge({
             </text>
             {i === finalIdx && (
               <text x={x(i) + bw / 2} y={BOTTOM + 66} textAnchor="middle" fill="var(--muted-foreground)" fontSize="12" className="num">
-                {nf.format(Math.round(t.usable))}
+                {nf.format(Math.round(t.remaining))} of {nf.format(Math.round(bookings))}
               </text>
             )}
           </g>

@@ -57,8 +57,17 @@ export function level1On(sel: Selection) {
   return sel.ota || sel.l1;
 }
 
-/** Heading + hint for the "Over time" panel, derived from the source selection. */
-export function graphTitle(sel: Selection) {
+/** What the graph plots: enrichment levels, or the guest information fields. */
+export type GraphMode = "levels" | "fields";
+
+export const GRAPH_MODE_LABELS: Record<GraphMode, string> = {
+  levels: "Level breakdown",
+  fields: "Field breakdown",
+};
+
+/** Heading + hint for the "Over time" panel, derived from mode + selection. */
+export function graphTitle(sel: Selection, mode: GraphMode = "levels") {
+  if (mode === "fields") return "Field breakdown — email, phone and address";
   const l1 = level1On(sel);
   if (l1 && sel.l2) return "Level 1, Level 2 and the opportunity remaining";
   if (l1) return "Level 1 — OTA baseline + Whois AI";
@@ -66,7 +75,9 @@ export function graphTitle(sel: Selection) {
   return "Opportunity remaining";
 }
 
-export function graphHint(sel: Selection) {
+export function graphHint(sel: Selection, mode: GraphMode = "levels") {
+  if (mode === "fields")
+    return "Usable email, phone and address per day across every selected level. Level series are off while this view is on.";
   const l1 = level1On(sel);
   if (l1 && sel.l2)
     return "Daily usable guest information from Level 1 and Level 2, against the opportunity still open.";
@@ -96,9 +107,9 @@ function mix(color: string, amount: number, into = "var(--surface-2)") {
 
 /** Fields get their own distinct hues so they never read as shades of one line. */
 const FIELD_HUE: Record<FieldKey, string> = {
-  email: "var(--l2)",
-  phone: "var(--l1)",
-  address: "var(--ceiling)",
+  email: "var(--l1)",
+  phone: "var(--ceiling)",
+  address: "var(--l2)",
 };
 
 const leafValue = (k: LeafKey) => (row: DayRow) => splitTotal(row.leaves[k]);
@@ -208,8 +219,22 @@ function remainingNode(): GraphNode {
   };
 }
 
-/** The node list the graph should plot for the current sources + expansion. */
-export function resolveNodes(sel: Selection, ex: Expansion): GraphNode[] {
+/** Email / phone / address totals across every selected level. */
+function fieldTotalNodes(): GraphNode[] {
+  return FIELDS.map((f) => ({
+    key: `field.${f}`,
+    label: FIELD_LABELS[f],
+    context: "Usable",
+    color: FIELD_HUE[f],
+    depth: 0,
+    value: (row: DayRow, sel: Selection) =>
+      activeLeaves(sel).reduce((s, k) => s + row.leaves[k][f], 0),
+  }));
+}
+
+/** The node list the graph should plot for the current mode + expansion. */
+export function resolveNodes(sel: Selection, ex: Expansion, mode: GraphMode = "levels"): GraphNode[] {
+  if (mode === "fields") return fieldTotalNodes();
   const out: GraphNode[] = [];
   if (level1On(sel)) out.push(...level1Branch(sel, ex, 0));
   if (sel.l2) out.push(...l2Branch(sel, ex, 0));
