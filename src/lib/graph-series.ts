@@ -219,8 +219,22 @@ function remainingNode(): GraphNode {
   };
 }
 
-/** The node list the graph should plot for the current sources + expansion. */
-export function resolveNodes(sel: Selection, ex: Expansion): GraphNode[] {
+/** Email / phone / address totals across every selected level. */
+function fieldTotalNodes(): GraphNode[] {
+  return FIELDS.map((f) => ({
+    key: `field.${f}`,
+    label: FIELD_LABELS[f],
+    context: "Usable",
+    color: FIELD_HUE[f],
+    depth: 0,
+    value: (row: DayRow, sel: Selection) =>
+      activeLeaves(sel).reduce((s, k) => s + row.leaves[k][f], 0),
+  }));
+}
+
+/** The node list the graph should plot for the current mode + expansion. */
+export function resolveNodes(sel: Selection, ex: Expansion, mode: GraphMode = "levels"): GraphNode[] {
+  if (mode === "fields") return fieldTotalNodes();
   const out: GraphNode[] = [];
   if (level1On(sel)) out.push(...level1Branch(sel, ex, 0));
   if (sel.l2) out.push(...l2Branch(sel, ex, 0));
