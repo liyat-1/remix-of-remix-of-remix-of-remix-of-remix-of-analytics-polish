@@ -105,10 +105,10 @@
 
   --ota: oklch(0.52 0.07 252);
   --l1: oklch(0.55 0.15 232);
-  --l2: oklch(0.62 0.16 160);
+  --l2: oklch(0.36 0.09 264);
   --gap: oklch(0.91 0.012 252);
   --ceiling: oklch(0.68 0.15 72);
-  --recoverable: oklch(0.76 0.14 72);
+  --recoverable: oklch(0.62 0.15 152);
   --unrecoverable: oklch(0.72 0.008 250);
 
 
@@ -158,10 +158,10 @@
 
   --ota: oklch(0.66 0.055 250);
   --l1: oklch(0.75 0.13 225);
-  --l2: oklch(0.79 0.17 163);
+  --l2: oklch(0.48 0.11 266);
   --gap: oklch(0.34 0.028 258);
   --ceiling: oklch(0.82 0.14 78);
-  --recoverable: oklch(0.78 0.15 75);
+  --recoverable: oklch(0.74 0.16 155);
   --unrecoverable: oklch(0.55 0.01 258);
 
 
