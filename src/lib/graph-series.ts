@@ -107,9 +107,9 @@ function mix(color: string, amount: number, into = "var(--surface-2)") {
 
 /** Fields get their own distinct hues so they never read as shades of one line. */
 const FIELD_HUE: Record<FieldKey, string> = {
-  email: "var(--l2)",
-  phone: "var(--l1)",
-  address: "var(--ceiling)",
+  email: "var(--l1)",
+  phone: "var(--ceiling)",
+  address: "var(--l2)",
 };
 
 const leafValue = (k: LeafKey) => (row: DayRow) => splitTotal(row.leaves[k]);
