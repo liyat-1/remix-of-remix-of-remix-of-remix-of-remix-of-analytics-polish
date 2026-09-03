@@ -1,85 +1,80 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { ArrowUpRight, ChartColumn, ChartPie, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 
-import { ControlsBar } from "@/components/dashboard/ControlsBar";
-import { GraphControls } from "@/components/dashboard/GraphControls";
-import { HeroBridge } from "@/components/dashboard/HeroBridge";
-import {
-  MixDonut,
-  MixLegend,
-  SourceToggles,
-  type Breakdown,
-  type SourceKey,
-} from "@/components/dashboard/UsableMixPie";
-import { TimeSeriesChart } from "@/components/dashboard/TimeSeriesChart";
+import { OpportunityPanel } from "@/components/reach/OpportunityPanel";
+import { ReachControls } from "@/components/reach/ReachControls";
+import { ReachExplorer } from "@/components/reach/ReachExplorer";
+import { ReachHero } from "@/components/reach/ReachHero";
+import { ReachTimeline } from "@/components/reach/ReachTimeline";
 import {
   DEFAULT_PROPERTY,
-  DEFAULT_SELECTION,
-  aggregate,
-  compact,
   formatRange,
-  getRows,
-  nf,
-  pct,
   resolveComparison,
   resolvePeriod,
-  stageFields,
-  toTotals,
   type ComparisonId,
   type PeriodId,
   type PropertyId,
   type Range,
-  type Selection,
 } from "@/lib/analytics-model";
 import {
-  DEFAULT_EXPANSION,
-  buildChartSeries,
+  DEFAULT_TIMELINE,
+  GUEST_SOURCES,
+  aggregateReach,
+  bookingsPerDay,
+  buildTimeline,
   dayLabels,
-  graphHint,
-  graphTitle,
-  level1On,
-  resolveNodes,
-  type Expansion,
-  type GraphMode,
-} from "@/lib/graph-series";
+  getReachRows,
+  hasLevel2,
+  hasNonOta,
+  type GuestSource,
+  type LevelView,
+  type StateView,
+  type TimelineOptions,
+} from "@/lib/reach-model";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Guest Information Opportunity — Enrichment Analytics" },
+      { title: "Guests You Can Reach — Directful Analytics" },
       {
         name: "description",
         content:
-          "See how OTA Buster turns raw OTA guest data into usable guest information: Level 1 baseline plus Whois AI, Level 2 collection, and the opportunity still remaining against every booking received.",
+          "See how many more guests your hotel can reach: where you started, what Level 1 and Level 2 added, and the guest opportunity still available.",
       },
-      { property: "og:title", content: "Guest Information Opportunity — Enrichment Analytics" },
+      { property: "og:title", content: "Guests You Can Reach — Directful Analytics" },
       {
         property: "og:description",
         content:
-          "Usable guest information from Level 1 and Level 2 enrichment, measured against total bookings received.",
+          "Starting point, Level 1, Level 2 and now — the guests your hotel can reach, with proof down to the individual guest.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: Dashboard,
+  component: Analytics,
 });
 
-function Dashboard() {
+function Analytics() {
+  const [source, setSource] = useState<GuestSource>("ota");
+  const [state, setState] = useState<StateView>("now");
   const [property, setProperty] = useState<PropertyId>(DEFAULT_PROPERTY);
   const [period, setPeriod] = useState<PeriodId>("15d");
   const [customRange, setCustomRange] = useState<Range | null>(null);
   const [comparison, setComparison] = useState<ComparisonId>("off");
   const [customCompare, setCustomCompare] = useState<Range | null>(null);
-  const [selection, setSelection] = useState<Selection>(DEFAULT_SELECTION);
-  const [breakdown, setBreakdown] = useState<Breakdown>({ level1: false, l2: false });
-  const [chartView, setChartView] = useState<"pie" | "bridge">("pie");
+  const [level, setLevel] = useState<LevelView>("combined");
+  const [timeline, setTimeline] = useState<TimelineOptions>(DEFAULT_TIMELINE);
 
-  // Time graph state
-  const [expansion, setExpansion] = useState<Expansion>(DEFAULT_EXPANSION);
-  const [graphMode, setGraphMode] = useState<GraphMode>("levels");
-  const [hidden, setHidden] = useState<Record<string, boolean>>({});
+  const level2Active = hasLevel2(property);
+
+  // Only invalid selections are dropped when the context changes.
+  useEffect(() => {
+    if (!hasNonOta(property) && source === "nonota") setSource("ota");
+  }, [property, source]);
+
+  useEffect(() => {
+    if (!level2Active && level === "level2") setLevel("combined");
+  }, [level2Active, level]);
 
   const range = useMemo(() => resolvePeriod(period, customRange), [period, customRange]);
   const compareRange = useMemo(
@@ -87,67 +82,45 @@ function Dashboard() {
     [comparison, range, customCompare],
   );
 
-  const rows = useMemo(() => getRows(property, range), [property, range]);
+  const rows = useMemo(() => getReachRows(property, source, range), [property, source, range]);
   const compareRows = useMemo(
-    () => (compareRange ? getRows(property, compareRange) : null),
-    [property, compareRange],
+    () => (compareRange ? getReachRows(property, source, compareRange) : null),
+    [property, source, compareRange],
   );
 
-  const a = useMemo(() => aggregate(rows, selection, range), [rows, selection, range]);
-  const prevA = useMemo(
-    () => (compareRows && compareRange ? aggregate(compareRows, selection, compareRange) : null),
-    [compareRows, selection, compareRange],
-  );
+  const reach = useMemo(() => aggregateReach(rows, range, level2Active), [rows, range, level2Active]);
 
-  const fields = useMemo(() => stageFields(a, selection), [a, selection]);
-  const t = useMemo(() => toTotals(a), [a]);
-  const layers = { level1: level1On(selection), l2: selection.l2 };
-  const l2detail = { journey: a.journey, staff: a.staff, idscan: a.idscan, duringStay: a.duringStay };
-
-  const nodes = useMemo(
-    () => resolveNodes(selection, expansion, graphMode),
-    [selection, expansion, graphMode],
-  );
-  const visibleNodes = nodes.filter((n) => !hidden[n.key]);
-  const chartSeries = useMemo(
-    () => buildChartSeries(visibleNodes, rows, compareRows, selection),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [visibleNodes.map((n) => n.key).join(","), rows, compareRows, selection],
+  const series = useMemo(
+    () => buildTimeline(rows, compareRows, level, state, timeline, level2Active),
+    [rows, compareRows, level, state, timeline, level2Active],
   );
   const labels = useMemo(() => dayLabels(rows), [rows]);
+  const bookings = useMemo(() => bookingsPerDay(rows), [rows]);
 
   const rangeLabel = formatRange(range);
   const compareLabel = compareRange ? formatRange(compareRange) : null;
+  const sourceLabel = GUEST_SOURCES.find((s) => s.id === source)!.label;
+  const seed = `${property}|${source}|${range.start}|${range.end}`;
 
-  const toggleSource = (k: SourceKey) =>
-    setSelection((s) => {
-      const next =
-        k === "level1"
-          ? { ...s, ota: !level1On(s), l1: !level1On(s) }
-          : { ...s, l2: !s.l2 };
-      if (!next.ota && !next.l1 && !next.l2) return s;
-      return next;
-    });
-
-  const toggleBreakdown = (k: SourceKey) => setBreakdown((b) => ({ ...b, [k]: !b[k] }));
-  const toggleSel = (k: keyof Selection) => setSelection((s) => ({ ...s, [k]: !s[k] }));
+  const noData = reach.bookings === 0;
 
   return (
     <main className="w-full px-5 py-10 lg:px-10">
       <header className="mb-6">
-        <p className="mb-2 inline-flex items-center gap-2 rounded-full border border-border bg-surface-2/60 px-3 py-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-          <Sparkles className="size-3.5 text-primary" /> OTA Buster · Guest information opportunity
-        </p>
         <h1 className="text-3xl font-bold lg:text-4xl">
-          Your OTA data is the starting point — not the value.
+          Look what Directful unlocked for your hotel.
         </h1>
         <p className="mt-2 max-w-2xl text-muted-foreground">
-          How many bookings arrived, how much guest information Level 1 and Level 2 make usable,
-          and how much opportunity is still remaining.
+          You gave Directful your guest data. Directful made more of it usable. Here are the guests
+          you can reach today — and the ones still waiting.
         </p>
       </header>
 
-      <ControlsBar
+      <ReachControls
+        source={source}
+        onSource={setSource}
+        state={state}
+        onState={setState}
         property={property}
         onProperty={setProperty}
         period={period}
@@ -162,140 +135,49 @@ function Dashboard() {
         compareRange={compareRange}
       />
 
-      <section className="panel mb-6 flex flex-wrap items-center justify-between gap-6 p-6 lg:p-8">
-        <div className="flex items-end gap-4">
-          <span className="num text-5xl font-bold text-muted-foreground lg:text-6xl">
-            {compact(a.ota)}
-          </span>
-          <ArrowUpRight className="mb-3 size-8 text-primary" />
-          <span className="num text-6xl font-bold text-primary lg:text-7xl">{compact(a.usable)}</span>
-          <div className="mb-2">
-            <div className="num text-xl font-bold text-primary">{pct(a.totalUplift)}</div>
-            <div className="text-sm text-muted-foreground">more usable guest information</div>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-x-10 gap-y-3 sm:grid-cols-4">
-          <Stat label="Total bookings" value={nf.format(a.bookings)} />
-          <Stat
-            label="Usable guest information"
-            value={nf.format(Math.round(a.usable))}
-            tone="primary"
+      {noData ? (
+        <section className="panel p-10 text-center">
+          <h2 className="text-lg font-semibold">No guest data for this period</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Try another date range or property.
+          </p>
+        </section>
+      ) : (
+        <>
+          {!level2Active && (
+            <p className="mb-6 rounded-xl border border-border bg-surface-2/60 px-4 py-3 text-sm">
+              <span className="font-semibold">You're at Level 1.</span> Level 2 isn't active for this
+              property, so only your actual Level 1 results are shown below.
+            </p>
+          )}
+
+          <ReachHero r={reach} state={state} sourceLabel={sourceLabel} rangeLabel={rangeLabel} />
+
+          <ReachExplorer
+            r={reach}
+            level={level}
+            onLevel={setLevel}
+            state={state}
+            onState={setState}
+            seed={seed}
           />
-          <Stat label="Opportunity remaining" value={nf.format(Math.round(a.remaining))} muted />
-        </div>
-      </section>
 
-      <section className="panel p-6 lg:p-8">
-        <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-semibold">Usable mix</h2>
-            <p className="text-sm text-muted-foreground">
-              Every booking is either usable or still an open opportunity.
-            </p>
-            <p className="num mt-1 text-xs text-muted-foreground">
-              {rangeLabel}
-              {compareLabel ? ` · vs ${compareLabel}` : ""}
-            </p>
-          </div>
-          <div className="flex rounded-xl border border-border bg-surface-2/60 p-1">
-            {(
-              [
-                ["pie", "Pie", ChartPie],
-                ["bridge", "Bridge", ChartColumn],
-              ] as const
-            ).map(([id, label, Icon]) => (
-              <button
-                key={id}
-                onClick={() => setChartView(id)}
-                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                  chartView === id
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Icon className="size-4" />
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <SourceToggles sel={selection} onToggle={toggleSource} />
-
-        {chartView === "pie" ? (
-          <div className="grid items-center gap-8 lg:grid-cols-[minmax(0,380px)_1fr]">
-            <div className="flex justify-center">
-              <MixDonut a={a} sel={selection} bd={breakdown} size={380} />
-            </div>
-            <MixLegend
-              a={a}
-              prev={prevA}
-              sel={selection}
-              bd={breakdown}
-              onToggleBreakdown={toggleBreakdown}
-              onToggleSel={toggleSel}
-            />
-          </div>
-        ) : (
-          <HeroBridge
-            t={t}
-            layers={layers}
-            fields={fields}
-            l2={l2detail}
-            bookings={a.bookings}
+          <ReachTimeline
+            labels={labels}
+            series={series}
             rangeLabel={rangeLabel}
+            compareLabel={compareLabel}
+            bookings={bookings}
+            level={level}
+            state={state}
+            opts={timeline}
+            onOpts={setTimeline}
+            level2Active={level2Active}
           />
-        )}
-      </section>
 
-      <section className="panel mt-6 p-6 lg:p-8">
-        <div className="mb-4">
-          <h2 className="text-xl font-semibold">Over time — {graphTitle(selection, graphMode)}</h2>
-          <p className="text-sm text-muted-foreground">{graphHint(selection, graphMode)}</p>
-        </div>
-
-        <GraphControls
-          nodes={nodes}
-          hidden={hidden}
-          onToggleVisible={(k) => setHidden((h) => ({ ...h, [k]: !h[k] }))}
-          expansion={expansion}
-          onToggleExpand={(k) => setExpansion((e) => ({ ...e, [k]: !e[k] }))}
-          mode={graphMode}
-          onMode={setGraphMode}
-        />
-
-        <TimeSeriesChart
-          labels={labels}
-          series={chartSeries}
-          rangeLabel={rangeLabel}
-          compareLabel={compareLabel}
-        />
-      </section>
+          <OpportunityPanel r={reach} rangeLabel={rangeLabel} />
+        </>
+      )}
     </main>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  tone,
-  muted,
-}: {
-  label: string;
-  value: string;
-  tone?: "primary";
-  muted?: boolean;
-}) {
-  return (
-    <div>
-      <div className="text-xs tracking-wide text-muted-foreground uppercase">{label}</div>
-      <div
-        className={`num text-xl font-bold ${
-          tone === "primary" ? "text-primary" : muted ? "text-muted-foreground" : "text-foreground"
-        }`}
-      >
-        {value}
-      </div>
-    </div>
   );
 }
